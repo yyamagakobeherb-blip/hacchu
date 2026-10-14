@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>発注かんたん換算</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Dela+Gothic+One&display=swap">
+<style>
+/* 冷蔵庫の在庫札のような、1食材=1枚のカードを縦に並べるスマホ優先レイアウト */
+:root{
+  --bg:#eef3f6; --card:#ffffff; --ink:#18303f; --muted:#5d7383; --line:#cfdbe3;
+  --accent:#d9631e; --accent-ink:#ffffff; --cool:#1f6f8b; --soft:#e2ecf2; --warn:#b3261e;
+  --font:"BIZ UDPGothic","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",sans-serif;
+  --display:"Dela Gothic One","BIZ UDPGothic","Hiragino Kaku Gothic ProN",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1a21; --card:#172630; --ink:#e3edf2; --muted:#93a9b7; --line:#2b3f4c;
+  --accent:#f08a4b; --accent-ink:#1a0d04; --cool:#6cc0dc; --soft:#1e3240; --warn:#ff8a80; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1a21; --card:#172630; --ink:#e3edf2; --muted:#93a9b7; --line:#2b3f4c;
+  --accent:#f08a4b; --accent-ink:#1a0d04; --cool:#6cc0dc; --soft:#1e3240; --warn:#ff8a80; color-scheme:dark}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 var(--font);font-variant-numeric:tabular-nums;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+.wrap{max-width:720px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px}
+header.top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-family:var(--display);font-weight:400;font-size:1.5rem;margin:0;letter-spacing:.02em}
+h2{font-size:1.1rem;margin:0}
+.status{font-size:.8rem;color:var(--muted)}
+.hint{font-size:.85rem;color:var(--muted);margin:4px 0 0}
+button,input,select,textarea{font:inherit;color:inherit}
+input,select,textarea{background:var(--card);border:1.5px solid var(--line);border-radius:8px;padding:8px 10px;min-height:44px}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:3px solid color-mix(in srgb,var(--cool) 45%,transparent);outline-offset:1px;border-color:var(--cool)}
+input[type=number]{text-align:right}
+.btn{border:0;border-radius:10px;padding:10px 16px;min-height:44px;background:var(--soft);color:var(--ink);font-weight:700;cursor:pointer}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+.btn.cool{background:var(--cool);color:var(--bg)}
+.btn.ghost{background:transparent;border:1.5px solid var(--line)}
+.btn.danger{background:transparent;color:var(--warn);border:1.5px solid var(--warn)}
+.btn.small{min-height:36px;padding:6px 12px;font-size:.9rem}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.stack{display:grid;gap:12px}
+.list{display:grid;gap:12px;margin-top:16px}
+
+/* 入力カード */
+.item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:10px}
+.ihead{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline}
+.ihead b{font-size:1.1rem}
+.supplier{font-size:.8rem;color:var(--muted);margin-left:6px;font-weight:400}
+.formula{font-size:.8rem;color:var(--muted)}
+.line{display:grid;grid-template-columns:3.2em 1fr;gap:8px;align-items:start}
+.lbl{font-size:.8rem;font-weight:700;letter-spacing:.08em;color:var(--muted);padding-top:12px}
+.qty{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.q{display:flex;align-items:center;gap:4px}
+.q input{width:4.6em}
+.q span{font-size:.9rem}
+.result{grid-column:2;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline}
+.big{font-size:1.35rem;font-weight:700;color:var(--cool)}
+.order{font-size:1.35rem;font-weight:700;color:var(--accent)}
+.sub{font-size:.8rem;color:var(--muted)}
+.empty{color:var(--muted);text-align:center;padding:32px 8px;background:var(--card);border:1px dashed var(--line);border-radius:12px}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center;margin-top:12px}
+
+/* 登録一覧 */
+.reg{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.reg .name{min-width:0;flex:1 1 200px}
+.reg .formula{display:block}
+
+/* 下部タブ */
+nav.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(3,1fr);
+  padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);z-index:5}
+nav.tabs button{background:none;border:0;padding:10px 4px 12px;min-height:60px;font-weight:700;color:var(--muted);cursor:pointer;border-top:3px solid transparent}
+nav.tabs button[aria-selected=true]{color:var(--accent);border-top-color:var(--accent)}
+
+/* 編集シート */
+.overlay{position:fixed;inset:0;background:color-mix(in srgb,#000 45%,transparent);display:flex;align-items:flex-end;justify-content:center;z-index:10}
+.sheet{background:var(--bg);width:100%;max-width:640px;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;
+  padding:18px max(16px,env(safe-area-inset-right,0px)) calc(18px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+@media (min-width:700px){.overlay{align-items:center}.sheet{border-radius:16px}}
+.field{display:grid;gap:4px}
+.field>label,.flabel{font-size:.85rem;font-weight:700}
+.lvl{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.lvl input.n{width:5.5em}
+.lvl input.u{width:7em}
+.preview{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.9rem}
+.err{color:var(--warn);font-size:.9rem;min-height:1.4em}
+
+/* 送る・印刷 */
+.paper{background:#fff;color:#111;border:1px solid var(--line);border-radius:4px;padding:20px;overflow-x:auto;box-shadow:0 2px 10px color-mix(in srgb,#000 12%,transparent)}
+.paper h3{margin:0 0 4px;font-size:1.2rem}
+.paper .meta{font-size:.85rem;margin-bottom:10px;white-space:pre-wrap}
+.paper table{border-collapse:collapse;width:100%;min-width:520px;font-size:.85rem}
+.paper th,.paper td{border:1px solid #999;padding:6px 6px;text-align:left;vertical-align:top}
+.paper th{background:#eee}
+.paper td.num{text-align:right;white-space:nowrap}
+.paper td.ord{text-align:right;font-weight:700;font-size:1rem;white-space:nowrap}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:20px;font-size:.9rem;z-index:20}
+@media (prefers-reduced-motion:no-preference){.toast{transition:opacity .2s}}
+
+@media print{
+  @page{size:A4 portrait;margin:12mm}
+  body{background:#fff;padding:0}
+  body *{visibility:hidden}
+  #sheet,#sheet *{visibility:visible}
+  #sheet{position:absolute;left:0;top:0;width:100%;border:0;box-shadow:none;padding:0;overflow:visible}
+  #sheet table{min-width:0;font-size:10.5pt}
+  #sheet tr{break-inside:avoid}
+  nav.tabs,.toast{display:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>発注かんたん換算</h1>
+    <span class="status" id="status">この端末に自動保存</span>
+  </header>
+
+  <!-- 入力 -->
+  <section id="tab-input">
+    <p class="hint">冷蔵庫の在庫を入れると何人前あるか、必要な人前を入れると何ケース発注すればよいかが出ます。</p>
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="食材をさがす" aria-label="食材をさがす" style="flex:1 1 180px">
+      <button class="btn ghost small" id="clearInputs">入力を空にする</button>
+    </div>
+    <div class="list" id="inputList"></div>
+  </section>
+
+  <!-- 登録 -->
+  <section id="tab-items" hidden>
+    <div class="toolbar">
+      <h2>食材と換算式</h2>
+      <button class="btn primary" id="addItem">＋ 食材を追加</button>
+    </div>
+    <p class="hint">ケース・パック・個など単位の入り数と、1人前に使う量を登録します。単位は何段でも増やせます。</p>
+    <div class="list" id="regList"></div>
+    <div class="stack" style="margin-top:28px">
+      <h2>バックアップ</h2>
+      <p class="hint" style="margin:0">登録内容はこの端末のブラウザに保存されます。機種変更やブラウザのデータ削除に備えて、ときどきファイルに保存してください。</p>
+      <div class="row">
+        <button class="btn ghost" id="backupSave">バックアップを保存</button>
+        <label class="btn ghost" for="backupLoad" style="display:inline-flex;align-items:center">バックアップから戻す</label>
+        <input type="file" id="backupLoad" accept=".json,application/json" hidden>
+      </div>
+    </div>
+  </section>
+
+  <!-- 送る・印刷 -->
+  <section id="tab-send" hidden>
+    <div class="stack" style="margin-top:12px">
+      <div class="row">
+        <div class="field" style="flex:1 1 160px"><label for="sDate">日付</label><input type="date" id="sDate"></div>
+        <div class="field" style="flex:2 1 240px"><label for="sEmail">送信先メールアドレス</label><input type="email" id="sEmail" placeholder="例: order@example.com" autocomplete="email"></div>
+      </div>
+      <div class="field"><label for="sMemo">メモ（任意）</label><textarea id="sMemo" rows="2" placeholder="例: 週末の宴会 80名分"></textarea></div>
+      <label class="row" style="gap:6px"><input type="checkbox" id="sOnlyFilled" checked style="min-height:auto;width:20px;height:20px"> 数字を入れた食材だけ載せる</label>
+      <div class="row">
+        <button class="btn primary" id="doPrint">A4で印刷</button>
+        <button class="btn cool" id="doMail">メールで送る</button>
+        <button class="btn ghost" id="doCopy">文面をコピー</button>
+      </div>
+      <p class="hint" style="margin:0">「メールで送る」はスマホやPCのメールアプリが開き、宛先と本文が入った状態になります。送信ボタンはメールアプリで押してください。</p>
+      <div class="paper" id="sheet"></div>
+    </div>
+  </section>
+</div>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="input" aria-selected="true">在庫・発注</button>
+  <button role="tab" data-tab="items" aria-selected="false">食材の登録</button>
+  <button role="tab" data-tab="send" aria-selected="false">送る・印刷</button>
+</nav>
+
+<div id="modal"></div>
+<div id="toast" class="toast" hidden></div>
+
+<script>
+'use strict';
+const KEY = 'hacchu-kantan-v1';
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+function sampleData() {
+  return {
+    items: [
+      { id: uid(), name: '鶏もも肉（例）', supplier: '', levels: [{ name: 'ケース' }, { name: 'パック', per: 6 }, { name: '枚', per: 5 }], portion: { amount: 1, level: 2 }, plabel: '人前' },
+      { id: uid(), name: '冷凍むきエビ（例）', supplier: '', levels: [{ name: 'ケース' }, { name: 'パック', per: 10 }, { name: '尾', per: 20 }], portion: { amount: 4, level: 2 }, plabel: '人前' },
+      { id: uid(), name: '生クリーム（例）', supplier: '', levels: [{ name: 'ケース' }, { name: '本', per: 12 }, { name: 'ml', per: 1000 }], portion: { amount: 50, level: 2 }, plabel: '人前' }
+    ],
+    counts: {},
+    settings: { email: '', memo: '', onlyFilled: true }
+  };
+}
+
+let S;
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem(KEY));
+    if (s && Array.isArray(s.items)) { s.counts ||= {}; s.settings ||= { email: '', memo: '', onlyFilled: true }; return s; }
+  } catch (e) {}
+  return sampleData();
+}
+let saveTimer;
+function save() {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(S));
+    $('#status').textContent = '保存しました ' + new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    $('#status').textContent = '保存できませんでした（ブラウザの設定を確認してください）';
+  }
+}
+function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(save, 300); }
+
+// ---- 換算 ----
+// factor[i] = その単位1つが、いちばん小さい単位でいくつになるか
+function factors(item) {
+  const f = new Array(item.levels.length).fill(1);
+  for (let i = item.levels.length - 2; i >= 0; i--) f[i] = f[i + 1] * Number(item.levels[i + 1].per);
+  return f;
+}
+const num = v => { const n = parseFloat(String(v ?? '').replace(/[０-９．]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))); return isFinite(n) ? n : NaN; };
+function fmt(n) {
+  if (!isFinite(n)) return '-';
+  const r = Math.round(n * 10) / 10;
+  return r.toLocaleString('ja-JP', { maximumFractionDigits: 1 });
+}
+function calc(item) {
+  const c = S.counts[item.id] || {};
+  const f = factors(item);
+  const stock = c.stock || [];
+  let hasStock = false, stockBase = 0;
+  item.levels.forEach((_, i) => { const v = num(stock[i]); if (isFinite(v)) { hasStock = true; stockBase += v * f[i]; } });
+  const portionBase = Number(item.portion.amount) * f[item.portion.level];
+  const caseBase = f[0];
+  const need = num(c.need);
+  const hasNeed = isFinite(need);
+  const res = { hasStock, hasNeed, stockBase, stockPortions: stockBase / portionBase, need, perCase: caseBase / portionBase };
+  if (hasNeed) {
+    const needBase = need * portionBase;
+    res.rawCases = Math.ceil(needBase / caseBase - 1e-9);
+    const short = needBase - stockBase;
+    res.orderCases = short > 0 ? Math.ceil(short / caseBase - 1e-9) : 0;
+    res.leftover = res.orderCases * caseBase + stockBase - needBase; // 発注後に余る量（最小単位）
+  }
+  return res;
+}
+function formulaText(item) {
+  const f = factors(item);
+  const parts = item.levels.map((l, i) => i === 0 ? '1' + l.name : fmt(f[0] / f[i]) + l.name);
+  const pp = f[0] / (Number(item.portion.amount) * f[item.portion.level]);
+  return parts.join(' = ') + ' = ' + fmt(pp) + item.plabel;
+}
+function stockText(item) {
+  const st = (S.counts[item.id] || {}).stock || [];
+  return item.levels.map((l, i) => { const v = num(st[i]); return isFinite(v) && v !== 0 ? fmt(v) + l.name : ''; }).filter(Boolean).join(' ') || '0';
+}
+
+// ---- 入力タブ ----
+function renderInput() {
+  const q = $('#search').value.trim();
+  const list = $('#inputList');
+  const items = S.items.filter(it => !q || it.name.includes(q) || (it.supplier || '').includes(q));
+  if (!S.items.length) { list.innerHTML = '<div class="empty">食材がまだありません。<br>下の「食材の登録」から追加してください。</div>'; return; }
+  if (!items.length) { list.innerHTML = '<div class="empty">「' + esc(q) + '」に当てはまる食材はありません。</div>'; return; }
+  list.innerHTML = items.map(it => {
+    const c = S.counts[it.id] || {};
+    const st = c.stock || [];
+    return `<div class="item" data-id="${it.id}">
+      <div class="ihead"><b>${esc(it.name)}${it.supplier ? `<span class="supplier">${esc(it.supplier)}</span>` : ''}</b><span class="formula">${esc(formulaText(it))}</span></div>
+      <div class="line"><span class="lbl">在庫</span>
+        <div class="qty">${it.levels.map((l, i) => `<label class="q"><input type="number" inputmode="decimal" min="0" step="any" id="st-${it.id}-${i}" data-k="stock" data-i="${i}" value="${esc(st[i] ?? '')}" aria-label="${esc(it.name)} 在庫 ${esc(l.name)}"><span>${esc(l.name)}</span></label>`).join('')}</div>
+        <div class="result" data-out="stock"></div>
+      </div>
+      <div class="line"><span class="lbl">必要</span>
+        <div class="qty"><label class="q"><input type="number" inputmode="decimal" min="0" step="any" id="nd-${it.id}" data-k="need" value="${esc(c.need ?? '')}" aria-label="${esc(it.name)} 必要${esc(it.plabel)}"><span>${esc(it.plabel)}</span></label></div>
+        <div class="result" data-out="need"></div>
+      </div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.item').forEach(updateCard);
+}
+function updateCard(card) {
+  const it = S.items.find(x => x.id === card.dataset.id); if (!it) return;
+  const r = calc(it);
+  const smallest = it.levels[it.levels.length - 1].name;
+  card.querySelector('[data-out=stock]').innerHTML = r.hasStock
+    ? `<span class="big">${fmt(r.stockPortions)}${esc(it.plabel)}</span><span class="sub">（${fmt(r.stockBase)}${esc(smallest)}）</span>`
+    : '<span class="sub">在庫数を入れると何' + esc(it.plabel) + 'あるか出ます</span>';
+  card.querySelector('[data-out=need]').innerHTML = r.hasNeed
+    ? `<span class="order">発注 ${r.orderCases}${esc(it.levels[0].name)}</span>` +
+      (r.hasStock ? `<span class="sub">在庫を引く前なら ${r.rawCases}${esc(it.levels[0].name)}</span>` : '') +
+      `<span class="sub">発注後の余り ${fmt(r.leftover / (Number(it.portion.amount) * factors(it)[it.portion.level]))}${esc(it.plabel)}</span>`
+    : `<span class="sub">必要な${esc(it.plabel)}を入れると発注${esc(it.levels[0].name)}数が出ます</span>`;
+}
+$('#inputList').addEventListener('input', e => {
+  const inp = e.target.closest('input[data-k]'); if (!inp) return;
+  const card = inp.closest('.item'); const id = card.dataset.id;
+  const c = S.counts[id] ||= {};
+  if (inp.dataset.k === 'stock') { (c.stock ||= [])[Number(inp.dataset.i)] = inp.value; }
+  else c.need = inp.value;
+  updateCard(card); saveSoon();
+});
+$('#search').addEventListener('input', renderInput);
+$('#clearInputs').addEventListener('click', () => {
+  ask('在庫と必要数の入力をすべて空にしますか？（登録した食材と換算式は消えません）', '空にする', () => { S.counts = {}; save(); renderInput(); toast('入力を空にしました'); });
+});
+
+// ---- 登録タブ ----
+function renderReg() {
+  const list = $('#regList');
+  if (!S.items.length) { list.innerHTML = '<div class="empty">「＋ 食材を追加」から登録してください。</div>'; return; }
+  list.innerHTML = S.items.map((it, idx) => `<div class="reg" data-id="${it.id}">
+      <div class="name"><b>${esc(it.name)}</b>${it.supplier ? `<span class="supplier">${esc(it.supplier)}</span>` : ''}<span class="formula">${esc(formulaText(it))}</span>
+        <span class="formula">1${esc(it.plabel)} = ${fmt(it.portion.amount)}${esc(it.levels[it.portion.level].name)}</span></div>
+      <div class="row">
+        <button class="btn ghost small" data-act="up" ${idx === 0 ? 'disabled' : ''} aria-label="上へ">↑</button>
+        <button class="btn ghost small" data-act="down" ${idx === S.items.length - 1 ? 'disabled' : ''} aria-label="下へ">↓</button>
+        <button class="btn small" data-act="edit">編集</button>
+      </div></div>`).join('');
+}
+$('#regList').addEventListener('click', e => {
+  const b = e.target.closest('button[data-act]'); if (!b) return;
+  const id = b.closest('.reg').dataset.id; const i = S.items.findIndex(x => x.id === id);
+  if (b.dataset.act === 'edit') return openEditor(S.items[i]);
+  const j = b.dataset.act === 'up' ? i - 1 : i + 1;
+  if (j < 0 || j >= S.items.length) return;
+  [S.items[i], S.items[j]] = [S.items[j], S.items[i]];
+  save(); renderReg();
+});
+$('#addItem').addEventListener('click', () => openEditor(null));
+
+// ---- 編集シート ----
+let draft;
+function openEditor(item) {
+  draft = item ? JSON.parse(JSON.stringify(item))
+    : { id: uid(), name: '', supplier: '', levels: [{ name: 'ケース' }, { name: 'パック', per: '' }, { name: '個', per: '' }], portion: { amount: 1, level: 2 }, plabel: '人前' };
+  draft._new = !item;
+  renderEditor();
+}
+function renderEditor() {
+  const d = draft;
+  const lv = d.levels.map((l, i) => i === 0
+    ? `<div class="lvl"><span>いちばん大きい単位</span><input class="u" id="lv-name-0" data-lv="0" data-f="name" value="${esc(l.name)}" aria-label="単位名"></div>`
+    : `<div class="lvl"><span>1${esc(d.levels[i - 1].name || '?')} の中に</span><input class="n" type="number" inputmode="decimal" min="0" step="any" id="lv-per-${i}" data-lv="${i}" data-f="per" value="${esc(l.per)}" aria-label="入り数"><input class="u" id="lv-name-${i}" data-lv="${i}" data-f="name" value="${esc(l.name)}" aria-label="単位名"></div>`).join('');
+  $('#modal').innerHTML = `<div class="overlay" id="ov"><div class="sheet stack" role="dialog" aria-modal="true" aria-label="食材の編集">
+    <h2>${d._new ? '食材を追加' : '食材を編集'}</h2>
+    <div class="field"><label for="ed-name">食材名</label><input id="ed-name" value="${esc(d.name)}" placeholder="例: 鶏もも肉"></div>
+    <div class="field"><label for="ed-sup">仕入先（任意）</label><input id="ed-sup" value="${esc(d.supplier)}" placeholder="例: ○○食品"></div>
+    <div class="field"><span class="flabel">単位と入り数</span>${lv}
+      <div class="row"><button class="btn ghost small" id="lvAdd">＋ 小さい単位を足す</button>${d.levels.length > 1 ? '<button class="btn ghost small" id="lvDel">いちばん小さい単位を消す</button>' : ''}</div></div>
+    <div class="field"><span class="flabel">1回分の量</span>
+      <div class="lvl"><span>1</span><input class="u" id="ed-plabel" value="${esc(d.plabel)}" aria-label="数え方（人前・食など）" style="width:5em"><span>に使うのは</span>
+      <input class="n" type="number" inputmode="decimal" min="0" step="any" id="ed-pamt" value="${esc(d.portion.amount)}" aria-label="使う量">
+      <select id="ed-plv" aria-label="使う量の単位">${d.levels.map((l, i) => `<option value="${i}" ${i === d.portion.level ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></div></div>
+    <div class="preview" id="edPrev"></div>
+    <div class="err" id="edErr"></div>
+    <div class="row" style="justify-content:space-between">
+      <div class="row"><button class="btn primary" id="edSave">保存</button><button class="btn ghost" id="edCancel">やめる</button></div>
+      ${d._new ? '' : '<button class="btn danger small" id="edDel">この食材を削除</button>'}
+    </div></div></div>`;
+  updatePreview();
+}
+function readEditor() {
+  const d = draft;
+  d.name = $('#ed-name').value.trim(); d.supplier = $('#ed-sup').value.trim();
+  document.querySelectorAll('#modal [data-lv]').forEach(inp => { d.levels[Number(inp.dataset.lv)][inp.dataset.f] = inp.value; });
+  d.plabel = $('#ed-plabel').value.trim() || '人前';
+  d.portion.amount = $('#ed-pamt').value; d.portion.level = Number($('#ed-plv').value);
+}
+function validate(d) {
+  if (!d.name) return '食材名を入れてください。';
+  for (let i = 0; i < d.levels.length; i++) {
+    if (!String(d.levels[i].name).trim()) return (i + 1) + '段目の単位名を入れてください。';
+    if (i > 0 && !(num(d.levels[i].per) > 0)) return '1' + d.levels[i - 1].name + ' の中に ' + d.levels[i].name + ' がいくつ入っているか、0より大きい数で入れてください。';
+  }
+  if (!(num(d.portion.amount) > 0)) return '1' + d.plabel + 'に使う量を0より大きい数で入れてください。';
+  return '';
+}
+function updatePreview() {
+  const d = draft; const msg = validate(d);
+  if (msg) { $('#edPrev').textContent = '換算式: 入力が終わるとここに出ます'; return; }
+  const it = normalize(d);
+  $('#edPrev').innerHTML = '換算式: <b>' + esc(formulaText(it)) + '</b>';
+}
+function normalize(d) {
+  return { id: d.id, name: d.name, supplier: d.supplier, plabel: d.plabel,
+    levels: d.levels.map((l, i) => i === 0 ? { name: String(l.name).trim() } : { name: String(l.name).trim(), per: num(l.per) }),
+    portion: { amount: num(d.portion.amount), level: d.portion.level } };
+}
+function closeEditor() { $('#modal').innerHTML = ''; draft = null; }
+$('#modal').addEventListener('input', e => {
+  if (!draft || !e.target.closest('.sheet')) return;
+  readEditor();
+  if (e.target.dataset.f === 'name') { // 単位名を変えたら「1○○ の中に」とプルダウンを追従させる
+    document.querySelectorAll('#modal .lvl > span:first-child').forEach((sp, k) => { if (k > 0 && k < draft.levels.length) sp.textContent = '1' + (draft.levels[k - 1].name || '?') + ' の中に'; });
+    const sel = $('#ed-plv'); [...sel.options].forEach((o, i) => o.textContent = draft.levels[i].name);
+  }
+  $('#edErr').textContent = ''; updatePreview();
+});
+$('#modal').addEventListener('change', e => { if (draft && e.target.id === 'ed-plv') { readEditor(); updatePreview(); } });
+$('#modal').addEventListener('click', e => {
+  if (!draft) return;
+  const id = e.target.id;
+  if (id === 'ov') return closeEditor();
+  if (id === 'edCancel') return closeEditor();
+  if (id === 'lvAdd') { readEditor(); draft.levels.push({ name: '', per: '' }); renderEditor(); document.getElementById('lv-per-' + (draft.levels.length - 1))?.focus(); return; }
+  if (id === 'lvDel') { readEditor(); draft.levels.pop(); if (draft.portion.level >= draft.levels.length) draft.portion.level = draft.levels.length - 1; renderEditor(); return; }
+  if (id === 'edSave') {
+    readEditor(); const msg = validate(draft);
+    if (msg) { $('#edErr').textContent = msg; return; }
+    const it = normalize(draft); const i = S.items.findIndex(x => x.id === it.id);
+    if (i >= 0) {
+      if (S.items[i].levels.length !== it.levels.length && S.counts[it.id]) delete S.counts[it.id].stock; // 単位の段数が変わったら在庫入力を空に
+      S.items[i] = it;
+    } else S.items.push(it);
+    save(); closeEditor(); renderAll(); toast('「' + it.name + '」を保存しました'); return;
+  }
+  if (id === 'edDel') {
+    const target = draft; closeEditor();
+    ask('「' + target.name + '」を削除しますか？', '削除する', () => {
+      S.items = S.items.filter(x => x.id !== target.id); delete S.counts[target.id]; save(); renderAll(); toast('削除しました');
+    });
+  }
+});
+
+// ---- 確認ダイアログ・通知 ----
+function ask(message, okLabel, onOk) {
+  $('#modal').innerHTML = `<div class="overlay" id="askOv"><div class="sheet stack" role="alertdialog" aria-modal="true" style="max-width:420px">
+    <p style="margin:0">${esc(message)}</p>
+    <div class="row"><button class="btn danger" id="askOk">${esc(okLabel)}</button><button class="btn ghost" id="askNo">やめる</button></div></div></div>`;
+  $('#askOk').onclick = () => { $('#modal').innerHTML = ''; onOk(); };
+  $('#askNo').onclick = $('#askOv').onclick = e => { if (e.target === e.currentTarget) $('#modal').innerHTML = ''; };
+  $('#askNo').focus();
+}
+let toastTimer;
+function toast(t) { const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => el.hidden = true, 2200); }
+
+// ---- 送る・印刷 ----
+function rowsForSheet() {
+  return S.items.map(it => ({ it, r: calc(it) })).filter(x => !S.settings.onlyFilled || x.r.hasStock || x.r.hasNeed);
+}
+function dateText() {
+  const v = $('#sDate').value; if (!v) return '';
+  const [y, m, d] = v.split('-'); const w = '日月火水木金土'[new Date(+y, m - 1, +d).getDay()];
+  return `${y}年${+m}月${+d}日（${w}）`;
+}
+function renderSheet() {
+  const rows = rowsForSheet();
+  const memo = S.settings.memo || '';
+  $('#sheet').innerHTML = `<h3>発注メモ</h3><div class="meta">${esc(dateText())}${memo ? '\n' + esc(memo) : ''}</div>` +
+    (rows.length ? `<table><thead><tr><th>食材</th><th>仕入先</th><th>在庫</th><th>在庫の量</th><th>必要</th><th>発注数</th></tr></thead><tbody>` +
+      rows.map(({ it, r }) => `<tr><td>${esc(it.name)}</td><td>${esc(it.supplier)}</td><td>${esc(stockText(it))}</td>
+        <td class="num">${r.hasStock ? fmt(r.stockPortions) + esc(it.plabel) : '-'}</td>
+        <td class="num">${r.hasNeed ? fmt(r.need) + esc(it.plabel) : '-'}</td>
+        <td class="ord">${r.hasNeed ? r.orderCases + esc(it.levels[0].name) : '-'}</td></tr>`).join('') + '</tbody></table>'
+      : '<p>載せる食材がありません。「在庫・発注」で数字を入れてください。</p>');
+}
+function mailText() {
+  const lines = ['発注メモ ' + dateText()];
+  if (S.settings.memo) lines.push(S.settings.memo);
+  lines.push('');
+  rowsForSheet().forEach(({ it, r }) => {
+    lines.push('■' + it.name + (it.supplier ? '（' + it.supplier + '）' : ''));
+    if (r.hasStock) lines.push('　在庫: ' + stockText(it) + '（' + fmt(r.stockPortions) + it.plabel + '）');
+    if (r.hasNeed) lines.push('　必要: ' + fmt(r.need) + it.plabel + ' → 発注 ' + r.orderCases + it.levels[0].name);
+  });
+  return lines.join('\n');
+}
+$('#sDate').addEventListener('input', renderSheet);
+$('#sMemo').addEventListener('input', e => { S.settings.memo = e.target.value; saveSoon(); renderSheet(); });
+$('#sEmail').addEventListener('input', e => { S.settings.email = e.target.value.trim(); saveSoon(); });
+$('#sOnlyFilled').addEventListener('change', e => { S.settings.onlyFilled = e.target.checked; save(); renderSheet(); });
+$('#doPrint').addEventListener('click', () => { renderSheet(); window.print(); });
+$('#doMail').addEventListener('click', () => {
+  const to = S.settings.email;
+  if (!to) { toast('送信先メールアドレスを入れてください'); $('#sEmail').focus(); return; }
+  location.href = 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent('発注メモ ' + dateText()) + '&body=' + encodeURIComponent(mailText());
+});
+$('#doCopy').addEventListener('click', async () => {
+  const t = mailText();
+  try { await navigator.clipboard.writeText(t); toast('コピーしました'); }
+  catch (e) {
+    const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); toast('コピーしました'); } catch (_) { toast('コピーできませんでした'); }
+    ta.remove();
+  }
+});
+
+// ---- バックアップ ----
+$('#backupSave').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = '発注かんたん換算_' + new Date().toISOString().slice(0, 10) + '.json'; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+$('#backupLoad').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  f.text().then(t => {
+    const s = JSON.parse(t); if (!s || !Array.isArray(s.items)) throw new Error();
+    ask('バックアップの内容（食材 ' + s.items.length + '件）で今の登録を置き換えますか？', '置き換える', () => {
+      S = s; S.counts ||= {}; S.settings ||= { email: '', memo: '', onlyFilled: true }; save(); renderAll(); toast('バックアップから戻しました');
+    });
+  }).catch(() => toast('このファイルは読み込めませんでした')).finally(() => e.target.value = '');
+});
+
+// ---- タブ ----
+function showTab(name) {
+  document.querySelectorAll('nav.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+  ['input', 'items', 'send'].forEach(t => $('#tab-' + t).hidden = t !== name);
+  if (name === 'input') renderInput();
+  if (name === 'items') renderReg();
+  if (name === 'send') renderSheet();
+  try { sessionStorage.setItem(KEY + '-tab', name); } catch (e) {}
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll('nav.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+function renderAll() { renderInput(); renderReg(); renderSheet(); }
+
+// ---- 起動 ----
+S = load();
+$('#sDate').value = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+$('#sEmail').value = S.settings.email || '';
+$('#sMemo').value = S.settings.memo || '';
+$('#sOnlyFilled').checked = S.settings.onlyFilled !== false;
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+let startTab = 'input'; try { startTab = sessionStorage.getItem(KEY + '-tab') || 'input'; } catch (e) {}
+renderAll(); showTab(startTab);
+try { if (!localStorage.getItem(KEY)) save(); } catch (e) {}
+</script>
+</body>
+</html>
