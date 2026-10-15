@@ -22,6 +22,7 @@
   --bg:#0f1a21; --card:#172630; --ink:#e3edf2; --muted:#93a9b7; --line:#2b3f4c;
   --accent:#f08a4b; --accent-ink:#1a0d04; --cool:#6cc0dc; --soft:#1e3240; --warn:#ff8a80; color-scheme:dark}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 var(--font);font-variant-numeric:tabular-nums;
   padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))}
@@ -97,6 +98,16 @@ nav.tabs button[aria-selected=true]{color:var(--accent);border-top-color:var(--a
 .paper th{background:#eee}
 .paper td.num{text-align:right;white-space:nowrap}
 .paper td.ord{text-align:right;font-weight:700;font-size:1rem;white-space:nowrap}
+/* 左端の索引（あかさたな） */
+body.has-index .wrap{padding-left:calc(max(16px,env(safe-area-inset-left,0px)) + 18px)}
+.kana{position:fixed;left:env(safe-area-inset-left,0px);top:calc(env(safe-area-inset-top,0px) + 64px);bottom:calc(72px + env(safe-area-inset-bottom,0px));
+  width:30px;display:flex;flex-direction:column;justify-content:space-evenly;align-items:center;touch-action:none;user-select:none;-webkit-user-select:none;z-index:4;cursor:pointer}
+.kana span{font-size:.85rem;font-weight:700;color:var(--cool);line-height:1;padding:3px 0;width:100%;text-align:center}
+.kana span.none{color:var(--line)}
+.kana.active{background:color-mix(in srgb,var(--cool) 12%,transparent);border-radius:0 12px 12px 0}
+.kana-pop{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);width:84px;height:84px;border-radius:18px;background:var(--cool);color:var(--bg);
+  font-size:2.6rem;font-weight:700;display:flex;align-items:center;justify-content:center;z-index:6;pointer-events:none}
+.item.hit,.reg.hit{outline:3px solid var(--cool);outline-offset:2px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:20px;font-size:.9rem;z-index:20}
 @media (prefers-reduced-motion:no-preference){.toast{transition:opacity .2s}}
 
@@ -174,6 +185,8 @@ nav.tabs button[aria-selected=true]{color:var(--accent);border-top-color:var(--a
   <button role="tab" data-tab="send" aria-selected="false">送る・印刷</button>
 </nav>
 
+<div class="kana" id="kana" hidden aria-label="頭文字で移動"></div>
+<div class="kana-pop" id="kanaPop" hidden></div>
 <div id="modal"></div>
 <div id="toast" class="toast" hidden></div>
 
@@ -187,9 +200,9 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 function sampleData() {
   return {
     items: [
-      { id: uid(), name: '鶏もも肉（例）', supplier: '', levels: [{ name: 'ケース' }, { name: 'パック', per: 6 }, { name: '枚', per: 5 }], portion: { amount: 1, level: 2 }, plabel: '人前' },
-      { id: uid(), name: '冷凍むきエビ（例）', supplier: '', levels: [{ name: 'ケース' }, { name: 'パック', per: 10 }, { name: '尾', per: 20 }], portion: { amount: 4, level: 2 }, plabel: '人前' },
-      { id: uid(), name: '生クリーム（例）', supplier: '', levels: [{ name: 'ケース' }, { name: '本', per: 12 }, { name: 'ml', per: 1000 }], portion: { amount: 50, level: 2 }, plabel: '人前' }
+      { id: uid(), name: '鶏もも肉（例）', yomi: 'とりももにく', supplier: '', levels: [{ name: 'ケース' }, { name: 'パック', per: 6 }, { name: '枚', per: 5 }], portion: { amount: 1, level: 2 }, plabel: '人前' },
+      { id: uid(), name: '冷凍むきエビ（例）', yomi: 'れいとうむきえび', supplier: '', levels: [{ name: 'ケース' }, { name: 'パック', per: 10 }, { name: '尾', per: 20 }], portion: { amount: 4, level: 2 }, plabel: '人前' },
+      { id: uid(), name: '生クリーム（例）', yomi: 'なまくりーむ', supplier: '', levels: [{ name: 'ケース' }, { name: '本', per: 12 }, { name: 'ml', per: 1000 }], portion: { amount: 50, level: 2 }, plabel: '人前' }
     ],
     counts: {},
     settings: { email: '', memo: '', onlyFilled: true }
@@ -200,7 +213,10 @@ let S;
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY));
-    if (s && Array.isArray(s.items)) { s.counts ||= {}; s.settings ||= { email: '', memo: '', onlyFilled: true }; return s; }
+    if (s && Array.isArray(s.items)) {
+      const ex = { '鶏もも肉（例）': 'とりももにく', '冷凍むきエビ（例）': 'れいとうむきえび', '生クリーム（例）': 'なまくりーむ' };
+      s.items.forEach(it => { if (!it.yomi && ex[it.name]) it.yomi = ex[it.name]; });
+      s.counts ||= {}; s.settings ||= { email: '', memo: '', onlyFilled: true }; return s; }
   } catch (e) {}
   return sampleData();
 }
@@ -259,17 +275,68 @@ function stockText(item) {
   return item.levels.map((l, i) => { const v = num(st[i]); return isFinite(v) && v !== 0 ? fmt(v) + l.name : ''; }).filter(Boolean).join(' ') || '0';
 }
 
+// ---- 頭文字（あかさたな） ----
+const KANA_ROWS = [['あ', 'あいうえおぁぃぅぇぉゔ'], ['か', 'かきくけこがぎぐげご'], ['さ', 'さしすせそざじずぜぞ'], ['た', 'たちつてとだぢづでどっ'],
+  ['な', 'なにぬねの'], ['は', 'はひふへほばびぶべぼぱぴぷぺぽ'], ['ま', 'まみむめも'], ['や', 'やゆよゃゅょ'], ['ら', 'らりるれろ'], ['わ', 'わをんゎ'], ['他', '']];
+const toHira = s => s.replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
+function kanaRow(item) {
+  const c = toHira(((item.yomi || item.name || '').trim())[0] || '');
+  const row = KANA_ROWS.find(([, chars]) => chars && chars.includes(c));
+  return row ? row[0] : '他';
+}
+const kanaBar = $('#kana'), kanaPop = $('#kanaPop');
+function currentCards() {
+  const sec = !$('#tab-input').hidden ? '#inputList .item' : !$('#tab-items').hidden ? '#regList .reg' : null;
+  return sec ? [...document.querySelectorAll(sec)] : [];
+}
+function renderKana() {
+  const cards = currentCards();
+  const show = cards.length > 0;
+  kanaBar.hidden = !show; document.body.classList.toggle('has-index', show);
+  if (!show) return;
+  const have = new Set(cards.map(c => c.dataset.row));
+  kanaBar.innerHTML = KANA_ROWS.map(([k]) => `<span data-k="${k}" class="${have.has(k) ? '' : 'none'}">${k}</span>`).join('');
+}
+let lastKana = '', hitTimer;
+function jumpKana(clientY) {
+  const r = kanaBar.getBoundingClientRect();
+  const idx = Math.max(0, Math.min(KANA_ROWS.length - 1, Math.floor((clientY - r.top) / r.height * KANA_ROWS.length)));
+  const k = KANA_ROWS[idx][0];
+  kanaPop.textContent = k; kanaPop.hidden = false;
+  if (k === lastKana) return; lastKana = k;
+  const cards = currentCards();
+  // その行の食材が無ければ、次の行（無ければ前の行）の食材へ
+  let target = null;
+  for (let j = idx; j < KANA_ROWS.length && !target; j++) target = cards.find(c => c.dataset.row === KANA_ROWS[j][0]);
+  for (let j = idx - 1; j >= 0 && !target; j--) target = cards.find(c => c.dataset.row === KANA_ROWS[j][0]);
+  document.querySelectorAll('.hit').forEach(c => c.classList.remove('hit'));
+  if (!target) return;
+  cards.filter(c => c.dataset.row === target.dataset.row).forEach(c => c.classList.add('hit'));
+  window.scrollTo(0, target.getBoundingClientRect().top + window.scrollY - 12);
+}
+kanaBar.addEventListener('pointerdown', e => {
+  e.preventDefault(); kanaBar.setPointerCapture(e.pointerId); kanaBar.classList.add('active'); lastKana = ''; jumpKana(e.clientY);
+});
+kanaBar.addEventListener('pointermove', e => { if (kanaBar.hasPointerCapture(e.pointerId)) jumpKana(e.clientY); });
+const endKana = () => {
+  kanaBar.classList.remove('active'); kanaPop.hidden = true;
+  clearTimeout(hitTimer); hitTimer = setTimeout(() => document.querySelectorAll('.hit').forEach(c => c.classList.remove('hit')), 1500);
+};
+kanaBar.addEventListener('pointerup', endKana);
+kanaBar.addEventListener('pointercancel', endKana);
+
 // ---- 入力タブ ----
 function renderInput() {
   const q = $('#search').value.trim();
   const list = $('#inputList');
-  const items = S.items.filter(it => !q || it.name.includes(q) || (it.supplier || '').includes(q));
-  if (!S.items.length) { list.innerHTML = '<div class="empty">食材がまだありません。<br>下の「食材の登録」から追加してください。</div>'; return; }
-  if (!items.length) { list.innerHTML = '<div class="empty">「' + esc(q) + '」に当てはまる食材はありません。</div>'; return; }
+  const qh = toHira(q);
+  const items = S.items.filter(it => !q || it.name.includes(q) || toHira(it.name).includes(qh) || (it.yomi || '').includes(qh) || (it.supplier || '').includes(q));
+  if (!S.items.length) { list.innerHTML = '<div class="empty">食材がまだありません。<br>下の「食材の登録」から追加してください。</div>'; renderKana(); return; }
+  if (!items.length) { list.innerHTML = '<div class="empty">「' + esc(q) + '」に当てはまる食材はありません。</div>'; renderKana(); return; }
   list.innerHTML = items.map(it => {
     const c = S.counts[it.id] || {};
     const st = c.stock || [];
-    return `<div class="item" data-id="${it.id}">
+    return `<div class="item" data-id="${it.id}" data-row="${kanaRow(it)}">
       <div class="ihead"><b>${esc(it.name)}${it.supplier ? `<span class="supplier">${esc(it.supplier)}</span>` : ''}</b><span class="formula">${esc(formulaText(it))}</span></div>
       <div class="line"><span class="lbl">在庫</span>
         <div class="qty">${it.levels.map((l, i) => `<label class="q"><input type="number" inputmode="decimal" min="0" step="any" id="st-${it.id}-${i}" data-k="stock" data-i="${i}" value="${esc(st[i] ?? '')}" aria-label="${esc(it.name)} 在庫 ${esc(l.name)}"><span>${esc(l.name)}</span></label>`).join('')}</div>
@@ -282,6 +349,7 @@ function renderInput() {
     </div>`;
   }).join('');
   list.querySelectorAll('.item').forEach(updateCard);
+  renderKana();
 }
 function updateCard(card) {
   const it = S.items.find(x => x.id === card.dataset.id); if (!it) return;
@@ -312,15 +380,17 @@ $('#clearInputs').addEventListener('click', () => {
 // ---- 登録タブ ----
 function renderReg() {
   const list = $('#regList');
-  if (!S.items.length) { list.innerHTML = '<div class="empty">「＋ 食材を追加」から登録してください。</div>'; return; }
-  list.innerHTML = S.items.map((it, idx) => `<div class="reg" data-id="${it.id}">
+  if (!S.items.length) { list.innerHTML = '<div class="empty">「＋ 食材を追加」から登録してください。</div>'; renderKana(); return; }
+  list.innerHTML = S.items.map((it, idx) => `<div class="reg" data-id="${it.id}" data-row="${kanaRow(it)}">
       <div class="name"><b>${esc(it.name)}</b>${it.supplier ? `<span class="supplier">${esc(it.supplier)}</span>` : ''}<span class="formula">${esc(formulaText(it))}</span>
+        ${kanaRow(it) === '他' ? '<span class="formula" style="color:var(--warn)">よみがな未登録（索引では「他」に入ります）</span>' : ''}
         <span class="formula">1${esc(it.plabel)} = ${fmt(it.portion.amount)}${esc(it.levels[it.portion.level].name)}</span></div>
       <div class="row">
         <button class="btn ghost small" data-act="up" ${idx === 0 ? 'disabled' : ''} aria-label="上へ">↑</button>
         <button class="btn ghost small" data-act="down" ${idx === S.items.length - 1 ? 'disabled' : ''} aria-label="下へ">↓</button>
         <button class="btn small" data-act="edit">編集</button>
       </div></div>`).join('');
+  renderKana();
 }
 $('#regList').addEventListener('click', e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
@@ -349,6 +419,7 @@ function renderEditor() {
   $('#modal').innerHTML = `<div class="overlay" id="ov"><div class="sheet stack" role="dialog" aria-modal="true" aria-label="食材の編集">
     <h2>${d._new ? '食材を追加' : '食材を編集'}</h2>
     <div class="field"><label for="ed-name">食材名</label><input id="ed-name" value="${esc(d.name)}" placeholder="例: 鶏もも肉"></div>
+    <div class="field"><label for="ed-yomi">よみがな（左端の索引で使います。頭の1文字だけでも可）</label><input id="ed-yomi" value="${esc(d.yomi || '')}" placeholder="例: とりももにく"></div>
     <div class="field"><label for="ed-sup">仕入先（任意）</label><input id="ed-sup" value="${esc(d.supplier)}" placeholder="例: ○○食品"></div>
     <div class="field"><span class="flabel">単位と入り数</span>${lv}
       <div class="row"><button class="btn ghost small" id="lvAdd">＋ 小さい単位を足す</button>${d.levels.length > 1 ? '<button class="btn ghost small" id="lvDel">いちばん小さい単位を消す</button>' : ''}</div></div>
@@ -366,7 +437,7 @@ function renderEditor() {
 }
 function readEditor() {
   const d = draft;
-  d.name = $('#ed-name').value.trim(); d.supplier = $('#ed-sup').value.trim();
+  d.name = $('#ed-name').value.trim(); d.yomi = toHira($('#ed-yomi').value.trim()); d.supplier = $('#ed-sup').value.trim();
   document.querySelectorAll('#modal [data-lv]').forEach(inp => { d.levels[Number(inp.dataset.lv)][inp.dataset.f] = inp.value; });
   d.plabel = $('#ed-plabel').value.trim() || '人前';
   d.portion.amount = $('#ed-pamt').value; d.portion.level = Number($('#ed-plv').value);
@@ -387,7 +458,7 @@ function updatePreview() {
   $('#edPrev').innerHTML = '換算式: <b>' + esc(formulaText(it)) + '</b>';
 }
 function normalize(d) {
-  return { id: d.id, name: d.name, supplier: d.supplier, plabel: d.plabel,
+  return { id: d.id, name: d.name, yomi: d.yomi || '', supplier: d.supplier, plabel: d.plabel,
     levels: d.levels.map((l, i) => i === 0 ? { name: String(l.name).trim() } : { name: String(l.name).trim(), per: num(l.per) }),
     portion: { amount: num(d.portion.amount), level: d.portion.level } };
 }
@@ -513,7 +584,7 @@ function showTab(name) {
   ['input', 'items', 'send'].forEach(t => $('#tab-' + t).hidden = t !== name);
   if (name === 'input') renderInput();
   if (name === 'items') renderReg();
-  if (name === 'send') renderSheet();
+  if (name === 'send') { renderSheet(); renderKana(); }
   try { sessionStorage.setItem(KEY + '-tab', name); } catch (e) {}
   window.scrollTo(0, 0);
 }
