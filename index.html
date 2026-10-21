@@ -108,6 +108,17 @@ body.has-index .wrap{padding-left:calc(max(16px,env(safe-area-inset-left,0px)) +
 .kana-pop{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);width:84px;height:84px;border-radius:18px;background:var(--cool);color:var(--bg);
   font-size:2.6rem;font-weight:700;display:flex;align-items:center;justify-content:center;z-index:6;pointer-events:none}
 .item.hit,.reg.hit{outline:3px solid var(--cool);outline-offset:2px}
+/* オン・オフのスイッチ */
+.sw{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:.8rem;font-weight:700;color:var(--muted);min-height:36px;position:relative}
+.sw input{position:absolute;opacity:0;width:1px;height:1px;min-height:0;padding:0;border:0}
+.sw .knob{width:44px;height:26px;border-radius:13px;background:var(--line);position:relative;flex:none}
+.sw .knob::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px color-mix(in srgb,#000 30%,transparent)}
+.sw input:checked+.knob{background:var(--cool)}
+.sw input:checked+.knob::after{left:21px}
+.sw input:focus-visible+.knob{outline:3px solid color-mix(in srgb,var(--cool) 45%,transparent);outline-offset:2px}
+@media (prefers-reduced-motion:no-preference){.sw .knob,.sw .knob::after{transition:all .15s}}
+.item.off,.reg.off{opacity:.6}
+.grp{font-size:.85rem;font-weight:700;color:var(--muted);border-top:2px dashed var(--line);padding-top:10px;margin-top:8px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:20px;font-size:.9rem;z-index:20}
 @media (prefers-reduced-motion:no-preference){.toast{transition:opacity .2s}}
 
@@ -146,7 +157,7 @@ body.has-index .wrap{padding-left:calc(max(16px,env(safe-area-inset-left,0px)) +
       <h2>食材と換算式</h2>
       <button class="btn primary" id="addItem">＋ 食材を追加</button>
     </div>
-    <p class="hint">ケース・パック・個など単位の入り数と、1人前に使う量を登録します。単位は何段でも増やせます。</p>
+    <p class="hint">ケース・パック・個など単位の入り数と、1人前に使う量を登録します。単位は何段でも増やせます。<br>スイッチがオンの食材は上に、オフは下に並びます（それぞれ五十音順）。</p>
     <div class="list" id="regList"></div>
     <div class="stack" style="margin-top:28px">
       <h2>バックアップ</h2>
@@ -284,6 +295,25 @@ function kanaRow(item) {
   const row = KANA_ROWS.find(([, chars]) => chars && chars.includes(c));
   return row ? row[0] : '他';
 }
+// オンを上、オフを下に。それぞれの中は五十音順（よみがな→食材名）
+const isOn = it => it.on !== false;
+const sortKey = it => toHira((it.yomi || it.name || '').trim());
+function sorted(items) {
+  return [...items].sort((a, b) => (isOn(b) - isOn(a)) || sortKey(a).localeCompare(sortKey(b), 'ja') || a.name.localeCompare(b.name, 'ja'));
+}
+function swHtml(it) {
+  return `<label class="sw"><input type="checkbox" role="switch" data-act="sw" ${isOn(it) ? 'checked' : ''} aria-label="${esc(it.name)} オン・オフ"><span class="knob"></span><span>${isOn(it) ? 'オン' : 'オフ'}</span></label>`;
+}
+// オフの先頭に区切りを入れる
+function withDivider(items, card) {
+  const firstOff = items.findIndex(it => !isOn(it));
+  return items.map((it, i) => (i === firstOff ? `<div class="grp">オフ（${items.length - firstOff}件）</div>` : '') + card(it)).join('');
+}
+function toggleOn(id, checked) {
+  const it = S.items.find(x => x.id === id); if (!it) return;
+  it.on = checked; save(); renderInput(); renderReg(); renderSheet();
+  toast('「' + it.name + '」を' + (checked ? 'オンにしました（上へ）' : 'オフにしました（下へ）'));
+}
 const kanaBar = $('#kana'), kanaPop = $('#kanaPop');
 function currentCards() {
   const sec = !$('#tab-input').hidden ? '#inputList .item' : !$('#tab-items').hidden ? '#regList .reg' : null;
@@ -330,14 +360,15 @@ function renderInput() {
   const q = $('#search').value.trim();
   const list = $('#inputList');
   const qh = toHira(q);
-  const items = S.items.filter(it => !q || it.name.includes(q) || toHira(it.name).includes(qh) || (it.yomi || '').includes(qh) || (it.supplier || '').includes(q));
+  const items = sorted(S.items).filter(it => !q || it.name.includes(q) || toHira(it.name).includes(qh) || (it.yomi || '').includes(qh) || (it.supplier || '').includes(q));
   if (!S.items.length) { list.innerHTML = '<div class="empty">食材がまだありません。<br>下の「食材の登録」から追加してください。</div>'; renderKana(); return; }
   if (!items.length) { list.innerHTML = '<div class="empty">「' + esc(q) + '」に当てはまる食材はありません。</div>'; renderKana(); return; }
-  list.innerHTML = items.map(it => {
+  list.innerHTML = withDivider(items, it => {
     const c = S.counts[it.id] || {};
     const st = c.stock || [];
-    return `<div class="item" data-id="${it.id}" data-row="${kanaRow(it)}">
-      <div class="ihead"><b>${esc(it.name)}${it.supplier ? `<span class="supplier">${esc(it.supplier)}</span>` : ''}</b><span class="formula">${esc(formulaText(it))}</span></div>
+    return `<div class="item${isOn(it) ? '' : ' off'}" data-id="${it.id}" data-row="${kanaRow(it)}">
+      <div class="ihead"><b>${esc(it.name)}${it.supplier ? `<span class="supplier">${esc(it.supplier)}</span>` : ''}</b>${swHtml(it)}</div>
+      <span class="formula">${esc(formulaText(it))}</span>
       <div class="line"><span class="lbl">在庫</span>
         <div class="qty">${it.levels.map((l, i) => `<label class="q"><input type="number" inputmode="decimal" min="0" step="any" id="st-${it.id}-${i}" data-k="stock" data-i="${i}" value="${esc(st[i] ?? '')}" aria-label="${esc(it.name)} 在庫 ${esc(l.name)}"><span>${esc(l.name)}</span></label>`).join('')}</div>
         <div class="result" data-out="stock"></div>
@@ -347,7 +378,7 @@ function renderInput() {
         <div class="result" data-out="need"></div>
       </div>
     </div>`;
-  }).join('');
+  });
   list.querySelectorAll('.item').forEach(updateCard);
   renderKana();
 }
@@ -365,7 +396,7 @@ function updateCard(card) {
     : `<span class="sub">必要な${esc(it.plabel)}を入れると発注${esc(it.levels[0].name)}数が出ます</span>`;
 }
 $('#inputList').addEventListener('input', e => {
-  const inp = e.target.closest('input[data-k]'); if (!inp) return;
+  const inp = e.target.closest('input[data-k]'); if (!inp) return; // スイッチは change で処理
   const card = inp.closest('.item'); const id = card.dataset.id;
   const c = S.counts[id] ||= {};
   if (inp.dataset.k === 'stock') { (c.stock ||= [])[Number(inp.dataset.i)] = inp.value; }
@@ -373,6 +404,9 @@ $('#inputList').addEventListener('input', e => {
   updateCard(card); saveSoon();
 });
 $('#search').addEventListener('input', renderInput);
+['#inputList', '#regList'].forEach(sel => $(sel).addEventListener('change', e => {
+  if (e.target.dataset.act === 'sw') toggleOn(e.target.closest('[data-id]').dataset.id, e.target.checked);
+}));
 $('#clearInputs').addEventListener('click', () => {
   ask('在庫と必要数の入力をすべて空にしますか？（登録した食材と換算式は消えません）', '空にする', () => { S.counts = {}; save(); renderInput(); toast('入力を空にしました'); });
 });
@@ -381,25 +415,20 @@ $('#clearInputs').addEventListener('click', () => {
 function renderReg() {
   const list = $('#regList');
   if (!S.items.length) { list.innerHTML = '<div class="empty">「＋ 食材を追加」から登録してください。</div>'; renderKana(); return; }
-  list.innerHTML = S.items.map((it, idx) => `<div class="reg" data-id="${it.id}" data-row="${kanaRow(it)}">
+  list.innerHTML = withDivider(sorted(S.items), it => `<div class="reg${isOn(it) ? '' : ' off'}" data-id="${it.id}" data-row="${kanaRow(it)}">
       <div class="name"><b>${esc(it.name)}</b>${it.supplier ? `<span class="supplier">${esc(it.supplier)}</span>` : ''}<span class="formula">${esc(formulaText(it))}</span>
         ${kanaRow(it) === '他' ? '<span class="formula" style="color:var(--warn)">よみがな未登録（索引では「他」に入ります）</span>' : ''}
         <span class="formula">1${esc(it.plabel)} = ${fmt(it.portion.amount)}${esc(it.levels[it.portion.level].name)}</span></div>
       <div class="row">
-        <button class="btn ghost small" data-act="up" ${idx === 0 ? 'disabled' : ''} aria-label="上へ">↑</button>
-        <button class="btn ghost small" data-act="down" ${idx === S.items.length - 1 ? 'disabled' : ''} aria-label="下へ">↓</button>
+        ${swHtml(it)}
         <button class="btn small" data-act="edit">編集</button>
-      </div></div>`).join('');
+      </div></div>`);
   renderKana();
 }
 $('#regList').addEventListener('click', e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
-  const id = b.closest('.reg').dataset.id; const i = S.items.findIndex(x => x.id === id);
-  if (b.dataset.act === 'edit') return openEditor(S.items[i]);
-  const j = b.dataset.act === 'up' ? i - 1 : i + 1;
-  if (j < 0 || j >= S.items.length) return;
-  [S.items[i], S.items[j]] = [S.items[j], S.items[i]];
-  save(); renderReg();
+  const id = b.closest('.reg').dataset.id;
+  if (b.dataset.act === 'edit') openEditor(S.items.find(x => x.id === id));
 });
 $('#addItem').addEventListener('click', () => openEditor(null));
 
@@ -458,7 +487,7 @@ function updatePreview() {
   $('#edPrev').innerHTML = '換算式: <b>' + esc(formulaText(it)) + '</b>';
 }
 function normalize(d) {
-  return { id: d.id, name: d.name, yomi: d.yomi || '', supplier: d.supplier, plabel: d.plabel,
+  return { id: d.id, on: d.on !== false, name: d.name, yomi: d.yomi || '', supplier: d.supplier, plabel: d.plabel,
     levels: d.levels.map((l, i) => i === 0 ? { name: String(l.name).trim() } : { name: String(l.name).trim(), per: num(l.per) }),
     portion: { amount: num(d.portion.amount), level: d.portion.level } };
 }
@@ -512,7 +541,7 @@ function toast(t) { const el = $('#toast'); el.textContent = t; el.hidden = fals
 
 // ---- 送る・印刷 ----
 function rowsForSheet() {
-  return S.items.map(it => ({ it, r: calc(it) })).filter(x => !S.settings.onlyFilled || x.r.hasStock || x.r.hasNeed);
+  return sorted(S.items).map(it => ({ it, r: calc(it) })).filter(x => !S.settings.onlyFilled || x.r.hasStock || x.r.hasNeed);
 }
 function dateText() {
   const v = $('#sDate').value; if (!v) return '';
