@@ -68,6 +68,11 @@ input[type=number]{text-align:right}
 /* 登録一覧 */
 .reg{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
 .reg .name{min-width:0;flex:1 1 200px}
+.reg{flex-wrap:nowrap}
+.reg>.row{flex:none;flex-direction:column;align-items:flex-end}
+.handle{flex:none;align-self:stretch;display:flex;align-items:center;justify-content:center;width:36px;margin:-12px 0 -12px -8px;font-size:1.5rem;color:var(--muted);cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
+.reg.dragging{position:relative;z-index:3;border-color:var(--cool);box-shadow:0 6px 18px color-mix(in srgb,#000 22%,transparent);opacity:1}
+.reg.dragging .handle{cursor:grabbing;color:var(--cool)}
 .reg .formula{display:block}
 
 /* 下部タブ */
@@ -157,7 +162,7 @@ body.has-index .wrap{padding-left:calc(max(16px,env(safe-area-inset-left,0px)) +
       <h2>食材と換算式</h2>
       <button class="btn primary" id="addItem">＋ 食材を追加</button>
     </div>
-    <p class="hint">ケース・パック・個など単位の入り数と、1人前に使う量を登録します。単位は何段でも増やせます。<br>スイッチがオンの食材は上に、オフは下に並びます（それぞれ五十音順）。</p>
+    <p class="hint">ケース・パック・個など単位の入り数と、1人前に使う量を登録します。単位は何段でも増やせます。<br>スイッチがオンの食材は上に、オフは下に並びます。左の「≡」をつまんで上下に動かすと、並び順を変えられます（「在庫・発注」の並びも同じになります）。</p>
     <div class="list" id="regList"></div>
     <div class="stack" style="margin-top:28px">
       <h2>バックアップ</h2>
@@ -216,7 +221,7 @@ function sampleData() {
       { id: uid(), name: '生クリーム（例）', yomi: 'なまくりーむ', supplier: '', levels: [{ name: 'ケース' }, { name: '本', per: 12 }, { name: 'ml', per: 1000 }], portion: { amount: 50, level: 2 }, plabel: '人前' }
     ],
     counts: {},
-    settings: { email: '', memo: '', onlyFilled: true }
+    settings: { email: '', memo: '', onlyFilled: true, manualOrder: true }
   };
 }
 
@@ -227,7 +232,7 @@ function load() {
     if (s && Array.isArray(s.items)) {
       const ex = { '鶏もも肉（例）': 'とりももにく', '冷凍むきエビ（例）': 'れいとうむきえび', '生クリーム（例）': 'なまくりーむ' };
       s.items.forEach(it => { if (!it.yomi && ex[it.name]) it.yomi = ex[it.name]; });
-      s.counts ||= {}; s.settings ||= { email: '', memo: '', onlyFilled: true }; return s; }
+      s.counts ||= {}; s.settings ||= { email: '', memo: '', onlyFilled: true }; migrateOrder(s); return s; }
   } catch (e) {}
   return sampleData();
 }
@@ -295,11 +300,17 @@ function kanaRow(item) {
   const row = KANA_ROWS.find(([, chars]) => chars && chars.includes(c));
   return row ? row[0] : '他';
 }
-// オンを上、オフを下に。それぞれの中は五十音順（よみがな→食材名）
+// オンを上、オフを下に。それぞれの中は登録の並び順（ドラッグで変えられる）
 const isOn = it => it.on !== false;
 const sortKey = it => toHira((it.yomi || it.name || '').trim());
 function sorted(items) {
-  return [...items].sort((a, b) => (isOn(b) - isOn(a)) || sortKey(a).localeCompare(sortKey(b), 'ja') || a.name.localeCompare(b.name, 'ja'));
+  return [...items].sort((a, b) => isOn(b) - isOn(a));
+}
+// 手動並べ替えを入れる前のデータは、いったん五十音順にそろえてから使う
+function migrateOrder(s) {
+  if (s.settings.manualOrder) return;
+  s.items.sort((a, b) => sortKey(a).localeCompare(sortKey(b), 'ja') || a.name.localeCompare(b.name, 'ja'));
+  s.settings.manualOrder = true;
 }
 function swHtml(it) {
   return `<label class="sw"><input type="checkbox" role="switch" data-act="sw" ${isOn(it) ? 'checked' : ''} aria-label="${esc(it.name)} オン・オフ"><span class="knob"></span><span>${isOn(it) ? 'オン' : 'オフ'}</span></label>`;
@@ -416,6 +427,7 @@ function renderReg() {
   const list = $('#regList');
   if (!S.items.length) { list.innerHTML = '<div class="empty">「＋ 食材を追加」から登録してください。</div>'; renderKana(); return; }
   list.innerHTML = withDivider(sorted(S.items), it => `<div class="reg${isOn(it) ? '' : ' off'}" data-id="${it.id}" data-row="${kanaRow(it)}">
+      <span class="handle" title="ドラッグで並べ替え" aria-hidden="true">≡</span>
       <div class="name"><b>${esc(it.name)}</b>${it.supplier ? `<span class="supplier">${esc(it.supplier)}</span>` : ''}<span class="formula">${esc(formulaText(it))}</span>
         ${kanaRow(it) === '他' ? '<span class="formula" style="color:var(--warn)">よみがな未登録（索引では「他」に入ります）</span>' : ''}
         <span class="formula">1${esc(it.plabel)} = ${fmt(it.portion.amount)}${esc(it.levels[it.portion.level].name)}</span></div>
@@ -430,6 +442,42 @@ $('#regList').addEventListener('click', e => {
   const id = b.closest('.reg').dataset.id;
   if (b.dataset.act === 'edit') openEditor(S.items.find(x => x.id === id));
 });
+
+// ---- ドラッグで並べ替え（つまみ ≡ を長押しせずにそのまま動かす。オン・オフのグループ内だけ） ----
+let drag = null;
+function dragScroll() {
+  if (!drag) return;
+  const y = drag.y, edge = 90, h = window.innerHeight;
+  const v = y < edge ? -(edge - y) / 6 : y > h - edge - 70 ? (y - (h - edge - 70)) / 6 : 0;
+  if (v) { window.scrollBy(0, v); dragMove(); }
+  drag.raf = requestAnimationFrame(dragScroll);
+}
+function dragMove() {
+  const { card, y } = drag;
+  const peers = [...document.querySelectorAll('#regList .reg')].filter(c => c !== card && c.classList.contains('off') === card.classList.contains('off'));
+  const before = peers.find(c => { const r = c.getBoundingClientRect(); return y < r.top + r.height / 2; });
+  if (before) { if (card.nextElementSibling !== before) before.before(card); }
+  else if (peers.length) { const last = peers[peers.length - 1]; if (last.nextElementSibling !== card) last.after(card); }
+}
+$('#regList').addEventListener('pointerdown', e => {
+  const h = e.target.closest('.handle'); if (!h) return;
+  e.preventDefault();
+  const card = h.closest('.reg'); card.classList.add('dragging');
+  drag = { card, id: e.pointerId, y: e.clientY }; drag.raf = requestAnimationFrame(dragScroll);
+});
+// 札を動かすとポインターの捕捉が外れるので、画面全体で指を追う
+window.addEventListener('pointermove', e => { if (drag && e.pointerId === drag.id) { drag.y = e.clientY; dragMove(); } });
+function dragEnd(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  cancelAnimationFrame(drag.raf); drag.card.classList.remove('dragging'); drag = null;
+  // 画面の並びをそのまま保存（入力済みの数字は食材ごとに保存しているので変わらない）
+  const order = [...document.querySelectorAll('#regList .reg')].map(c => c.dataset.id);
+  const next = order.map(id => S.items.find(x => x.id === id)).filter(Boolean);
+  if (next.length !== S.items.length || next.every((it, i) => it === S.items[i])) return;
+  S.items = next; save(); renderInput(); renderSheet();
+}
+window.addEventListener('pointerup', dragEnd);
+window.addEventListener('pointercancel', dragEnd);
 $('#addItem').addEventListener('click', () => openEditor(null));
 
 // ---- 編集シート ----
@@ -602,7 +650,7 @@ $('#backupLoad').addEventListener('change', e => {
   f.text().then(t => {
     const s = JSON.parse(t); if (!s || !Array.isArray(s.items)) throw new Error();
     ask('バックアップの内容（食材 ' + s.items.length + '件）で今の登録を置き換えますか？', '置き換える', () => {
-      S = s; S.counts ||= {}; S.settings ||= { email: '', memo: '', onlyFilled: true }; save(); renderAll(); toast('バックアップから戻しました');
+      S = s; S.counts ||= {}; S.settings ||= { email: '', memo: '', onlyFilled: true }; migrateOrder(S); save(); renderAll(); toast('バックアップから戻しました');
     });
   }).catch(() => toast('このファイルは読み込めませんでした')).finally(() => e.target.value = '');
 });
