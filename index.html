@@ -127,6 +127,27 @@ body.has-index .wrap{padding-left:calc(max(16px,env(safe-area-inset-left,0px)) +
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:20px;font-size:.9rem;z-index:20}
 @media (prefers-reduced-motion:no-preference){.toast{transition:opacity .2s}}
 
+/* カメラで数える */
+.scan{position:fixed;inset:0;z-index:15;background:var(--bg);display:flex;flex-direction:column;
+  padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+.scan-top{display:flex;justify-content:space-between;align-items:center;padding:8px 16px}
+.cam{position:relative;background:#000;flex:0 0 auto;height:min(42vh,360px);overflow:hidden}
+.cam video{width:100%;height:100%;object-fit:cover;display:block}
+.aim{position:absolute;left:10%;right:10%;top:30%;bottom:30%;border:3px solid rgba(255,255,255,.85);border-radius:10px;box-shadow:0 0 0 999px rgba(0,0,0,.25)}
+.cam.got .aim{border-color:#5ee08a}
+.cam-msg{position:absolute;left:0;right:0;bottom:8px;text-align:center;color:#fff;font-size:.85rem;text-shadow:0 1px 3px #000;padding:0 12px}
+.scan-panel{flex:1;overflow:auto;padding:14px 16px 20px;display:grid;gap:12px;align-content:start}
+.scan-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:10px}
+.scan-card.flash{border-color:var(--cool);box-shadow:0 0 0 3px color-mix(in srgb,var(--cool) 35%,transparent)}
+.counter{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.counter input{width:5.5em;font-size:1.4rem;font-weight:700;text-align:center}
+.counter .btn{min-width:56px;font-size:1.3rem}
+.pick{display:grid;gap:6px;max-height:40vh;overflow:auto}
+.pick button{text-align:left;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:44px;cursor:pointer}
+.code{font-family:ui-monospace,Consolas,monospace;font-size:.85rem;color:var(--muted)}
+.codes{display:grid;gap:6px}
+.codes .row{justify-content:space-between}
+
 @media print{
   @page{size:A4 portrait;margin:12mm}
   body{background:#fff;padding:0}
@@ -151,6 +172,7 @@ body.has-index .wrap{padding-left:calc(max(16px,env(safe-area-inset-left,0px)) +
     <p class="hint">冷蔵庫の在庫を入れると何人前あるか、必要な人前を入れると何ケース発注すればよいかが出ます。</p>
     <div class="toolbar">
       <input id="search" type="search" placeholder="食材をさがす" aria-label="食材をさがす" style="flex:1 1 180px">
+      <button class="btn cool small" id="scanOpen">カメラで数える</button>
       <button class="btn ghost small" id="clearInputs">入力を空にする</button>
     </div>
     <div class="list" id="inputList"></div>
@@ -203,6 +225,11 @@ body.has-index .wrap{padding-left:calc(max(16px,env(safe-area-inset-left,0px)) +
 
 <div class="kana" id="kana" hidden aria-label="頭文字で移動"></div>
 <div class="kana-pop" id="kanaPop" hidden></div>
+<div class="scan" id="scan" hidden role="dialog" aria-modal="true" aria-label="カメラで数える">
+  <div class="scan-top"><b>カメラで数える</b><button class="btn small" id="scanClose">閉じる</button></div>
+  <div class="cam"><video id="scanVideo" playsinline muted autoplay></video><div class="aim"></div><div class="cam-msg" id="camMsg">カメラを準備しています…</div></div>
+  <div class="scan-panel" id="scanPanel"></div>
+</div>
 <div id="modal"></div>
 <div id="toast" class="toast" hidden></div>
 
@@ -498,6 +525,9 @@ function renderEditor() {
     <div class="field"><label for="ed-name">食材名</label><input id="ed-name" value="${esc(d.name)}" placeholder="例: 鶏もも肉"></div>
     <div class="field"><label for="ed-yomi">よみがな（左端の索引で使います。頭の1文字だけでも可）</label><input id="ed-yomi" value="${esc(d.yomi || '')}" placeholder="例: とりももにく"></div>
     <div class="field"><label for="ed-sup">仕入先（任意）</label><input id="ed-sup" value="${esc(d.supplier)}" placeholder="例: ○○食品"></div>
+    <div class="field"><span class="flabel">バーコード</span>
+      ${(d.codes || []).length ? `<div class="codes">${d.codes.map((c, i) => `<div class="row"><span><span class="code">${esc(c.code)}</span> → 1${esc(d.levels[c.level]?.name || '?')}</span><button class="btn ghost small" data-codedel="${i}">外す</button></div>`).join('')}</div>`
+        : '<span class="hint" style="margin:0">まだありません。「在庫・発注」の「カメラで数える」で読み取ると、ここに追加されます。</span>'}</div>
     <div class="field"><span class="flabel">単位と入り数</span>${lv}
       <div class="row"><button class="btn ghost small" id="lvAdd">＋ 小さい単位を足す</button>${d.levels.length > 1 ? '<button class="btn ghost small" id="lvDel">いちばん小さい単位を消す</button>' : ''}</div></div>
     <div class="field"><span class="flabel">1回分の量</span>
@@ -537,7 +567,8 @@ function updatePreview() {
 function normalize(d) {
   return { id: d.id, on: d.on !== false, name: d.name, yomi: d.yomi || '', supplier: d.supplier, plabel: d.plabel,
     levels: d.levels.map((l, i) => i === 0 ? { name: String(l.name).trim() } : { name: String(l.name).trim(), per: num(l.per) }),
-    portion: { amount: num(d.portion.amount), level: d.portion.level } };
+    portion: { amount: num(d.portion.amount), level: d.portion.level },
+    codes: (d.codes || []).filter(c => c.level < d.levels.length) };
 }
 function closeEditor() { $('#modal').innerHTML = ''; draft = null; }
 $('#modal').addEventListener('input', e => {
@@ -553,6 +584,7 @@ $('#modal').addEventListener('change', e => { if (draft && e.target.id === 'ed-p
 $('#modal').addEventListener('click', e => {
   if (!draft) return;
   const id = e.target.id;
+  if (e.target.dataset.codedel) { readEditor(); draft.codes.splice(Number(e.target.dataset.codedel), 1); renderEditor(); return; }
   if (id === 'ov') return closeEditor();
   if (id === 'edCancel') return closeEditor();
   if (id === 'lvAdd') { readEditor(); draft.levels.push({ name: '', per: '' }); renderEditor(); document.getElementById('lv-per-' + (draft.levels.length - 1))?.focus(); return; }
@@ -572,6 +604,165 @@ $('#modal').addEventListener('click', e => {
     ask('「' + target.name + '」を削除しますか？', '削除する', () => {
       S.items = S.items.filter(x => x.id !== target.id); delete S.counts[target.id]; save(); renderAll(); toast('削除しました');
     });
+  }
+});
+
+// ---- カメラで数える（バーコード） ----
+// はじめてのバーコードは「どの食材の、どの単位か」を一度だけ選んで食材に覚えさせる。次からは読むたびにその単位の在庫が1つ増える
+const SCAN_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'code_128'];
+const sc = { mode: 'idle', code: '', itemId: '', level: 0, last: '', lastSeen: 0 };
+let detectorP, scanStream, scanTimer, actx;
+function getDetector() {
+  return detectorP ||= (async () => {
+    if ('BarcodeDetector' in window) { // Android の Chrome などは端末の読み取り機能を使う
+      try {
+        const sup = await BarcodeDetector.getSupportedFormats();
+        if (sup.includes('ean_13')) return new BarcodeDetector({ formats: SCAN_FORMATS.filter(f => sup.includes(f)) });
+      } catch (e) {}
+    }
+    const m = await import('https://cdn.jsdelivr.net/npm/barcode-detector@3.2.2/dist/es/ponyfill.js/+esm');
+    return new m.BarcodeDetector({ formats: SCAN_FORMATS });
+  })().catch(e => { detectorP = null; throw e; });
+}
+function normCode(r) {
+  const v = String(r.rawValue || '').trim();
+  if (!v) return '';
+  if (r.format === 'itf' && v.length !== 14) return ''; // 短い ITF は読み違いが多い
+  if (r.format === 'upc_a' && /^\d{12}$/.test(v)) return '0' + v; // EAN-13 と同じ番号にそろえる
+  return v;
+}
+const findCode = code => { for (const it of S.items) { const c = (it.codes || []).find(c => c.code === code); if (c) return { it, level: c.level }; } return null; };
+function addStock(it, level, n) {
+  const c = S.counts[it.id] ||= {}; const st = c.stock ||= [];
+  st[level] = String(Math.round(Math.max(0, (num(st[level]) || 0) + n) * 1000) / 1000);
+  saveSoon();
+}
+const camMsg = t => { $('#camMsg').textContent = t; };
+function feedback() {
+  try { navigator.vibrate?.(60); } catch (e) {}
+  try {
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.frequency.value = 1400; g.gain.value = 0.08; o.connect(g).connect(actx.destination);
+    o.start(); o.stop(actx.currentTime + 0.08);
+  } catch (e) {}
+}
+async function openScan() {
+  try { actx ||= new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch (e) {} // 音はタップの直後に準備しないと鳴らない端末がある
+  Object.assign(sc, { mode: 'idle', last: '', lastSeen: 0 });
+  $('#scan').hidden = false; document.body.style.overflow = 'hidden';
+  renderScanPanel(); camMsg('カメラを準備しています…');
+  if (!navigator.mediaDevices?.getUserMedia) return camMsg('この端末・ブラウザではカメラが使えません');
+  try {
+    scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+  } catch (e) {
+    return camMsg(e.name === 'NotAllowedError' ? 'カメラが許可されていません。ブラウザの設定でこのページのカメラを「許可」にしてください' : 'カメラを起動できませんでした');
+  }
+  if ($('#scan').hidden) return stopStream();
+  const v = $('#scanVideo'); v.srcObject = scanStream; v.play().catch(() => {});
+  let det;
+  try { det = await getDetector(); } catch (e) { return camMsg('読み取りの準備ができませんでした。電波のある所で開き直してください'); }
+  if ($('#scan').hidden) return;
+  camMsg('バーコードを枠に入れてください');
+  const loop = async () => {
+    if ($('#scan').hidden) return;
+    if (sc.mode !== 'pick' && sc.mode !== 'unit' && v.readyState >= 2) {
+      try { onCodes(await det.detect(v)); } catch (e) {}
+    }
+    scanTimer = setTimeout(loop, 120);
+  };
+  loop();
+}
+function stopStream() { scanStream?.getTracks().forEach(t => t.stop()); scanStream = null; $('#scanVideo').srcObject = null; }
+function closeScan() {
+  $('#scan').hidden = true; document.body.style.overflow = '';
+  clearTimeout(scanTimer); stopStream(); save(); renderInput();
+}
+function onCodes(rs) {
+  const code = rs.map(normCode).find(Boolean);
+  $('.cam').classList.toggle('got', !!code);
+  if (!code) return;
+  const now = Date.now();
+  // 写し続けている間は1回だけ。いったん外してまた写すと、もう1つ数える
+  if (code === sc.last && now - sc.lastSeen < 1500) { sc.lastSeen = now; return; }
+  sc.last = code; sc.lastSeen = now;
+  const hit = findCode(code);
+  if (hit) { addStock(hit.it, hit.level, 1); Object.assign(sc, { mode: 'item', code, itemId: hit.it.id, level: hit.level }); }
+  else Object.assign(sc, { mode: 'pick', code, itemId: '' });
+  feedback(); renderScanPanel();
+}
+function linkCode(it, level) {
+  S.items.forEach(x => { if (x.codes) x.codes = x.codes.filter(c => c.code !== sc.code); });
+  (it.codes ||= []).push({ code: sc.code, level });
+  addStock(it, level, 1); save();
+  Object.assign(sc, { mode: 'item', itemId: it.id, level, last: sc.code, lastSeen: Date.now() });
+  renderScanPanel(); toast('覚えました。次からは自動で「' + it.name + '」になります');
+}
+function pickListHtml(q) {
+  const qh = toHira(q);
+  const items = sorted(S.items).filter(it => !q || it.name.includes(q) || toHira(it.name).includes(qh) || (it.yomi || '').includes(qh));
+  return items.map(it => `<button data-pick="${it.id}"><b>${esc(it.name)}</b>${it.supplier ? `<span class="supplier">${esc(it.supplier)}</span>` : ''}</button>`).join('')
+    || '<span class="hint">当てはまる食材がありません。先に「食材の登録」で追加してください。</span>';
+}
+function renderScanPanel() {
+  const p = $('#scanPanel');
+  if (sc.mode === 'idle') {
+    p.innerHTML = `<div class="scan-card"><b>使い方</b><span class="hint" style="margin:0">商品のバーコードを写すと、その食材の在庫が1つ増えます。同じ商品をもう1つ数える時は、いったんカメラから外して、もう一度写してください。<br>はじめてのバーコードは、どの食材か一度だけ選びます。次からは自動でわかります。</span></div>`;
+    return;
+  }
+  if (sc.mode === 'pick') {
+    p.innerHTML = `<div class="scan-card"><b>はじめてのバーコードです。どの食材ですか？</b><span class="code">${esc(sc.code)}</span>
+      <input type="search" id="scQ" placeholder="食材をさがす" aria-label="食材をさがす">
+      <div class="pick" id="scPick">${pickListHtml('')}</div>
+      <button class="btn ghost small" data-sc="skip">登録しないで続ける</button></div>`;
+    return;
+  }
+  const it = S.items.find(x => x.id === sc.itemId);
+  if (!it) { sc.mode = 'idle'; return renderScanPanel(); }
+  if (sc.mode === 'unit') {
+    p.innerHTML = `<div class="scan-card"><b>「${esc(it.name)}」のどの単位のバーコードですか？</b>
+      <span class="hint" style="margin:0">段ボール箱に付いていれば「${esc(it.levels[0].name)}」、袋や容器に付いていればその単位を選んでください。</span>
+      <div class="row">${it.levels.map((l, i) => `<button class="btn" data-unit="${i}">1${esc(l.name)}</button>`).join('')}</div>
+      <button class="btn ghost small" data-sc="repick">食材を選び直す</button></div>`;
+    return;
+  }
+  const lv = it.levels[sc.level], r = calc(it);
+  const st = ((S.counts[it.id] || {}).stock || [])[sc.level] ?? '';
+  p.innerHTML = `<div class="scan-card flash"><div class="ihead"><b>${esc(it.name)}</b><span class="sub">1${esc(lv.name)} 増やしました</span></div>
+    <div class="counter"><button class="btn" data-sc="minus" aria-label="1つ減らす">−</button>
+      <input type="number" inputmode="decimal" min="0" step="any" id="scCount" value="${esc(st)}" aria-label="${esc(it.name)} 在庫 ${esc(lv.name)}"><span>${esc(lv.name)}</span>
+      <button class="btn" data-sc="plus" aria-label="1つ増やす">＋</button></div>
+    <span class="sub" id="scTotal">在庫の合計: ${esc(stockText(it))}（${fmt(r.stockPortions)}${esc(it.plabel)}）</span>
+    <button class="btn ghost small" data-sc="wrong">この食材ではない（選び直す）</button></div>`;
+  setTimeout(() => p.querySelector('.flash')?.classList.remove('flash'), 600);
+}
+function scTotal(it) { const r = calc(it); $('#scTotal').textContent = `在庫の合計: ${stockText(it)}（${fmt(r.stockPortions)}${it.plabel}）`; }
+$('#scanOpen').addEventListener('click', openScan);
+$('#scanClose').addEventListener('click', closeScan);
+$('#scanPanel').addEventListener('click', e => {
+  const t = e.target.closest('button'); if (!t) return;
+  const it = S.items.find(x => x.id === sc.itemId);
+  if (t.dataset.pick) {
+    const pit = S.items.find(x => x.id === t.dataset.pick); sc.itemId = pit.id;
+    if (pit.levels.length === 1) return linkCode(pit, 0);
+    sc.mode = 'unit'; return renderScanPanel();
+  }
+  if (t.dataset.unit) return linkCode(it, Number(t.dataset.unit));
+  const act = t.dataset.sc;
+  if (act === 'skip') { sc.mode = 'idle'; sc.lastSeen = Date.now(); return renderScanPanel(); }
+  if (act === 'repick') { sc.mode = 'pick'; return renderScanPanel(); }
+  if (act === 'plus' || act === 'minus') { addStock(it, sc.level, act === 'plus' ? 1 : -1); $('#scCount').value = S.counts[it.id].stock[sc.level]; return scTotal(it); }
+  if (act === 'wrong') { // 数えた1つを戻して、紐づけを外して選び直す
+    addStock(it, sc.level, -1);
+    it.codes = (it.codes || []).filter(c => c.code !== sc.code); save();
+    sc.mode = 'pick'; return renderScanPanel();
+  }
+});
+$('#scanPanel').addEventListener('input', e => {
+  if (e.target.id === 'scQ') { $('#scPick').innerHTML = pickListHtml(e.target.value.trim()); return; }
+  if (e.target.id === 'scCount') {
+    const it = S.items.find(x => x.id === sc.itemId); const c = S.counts[it.id] ||= {};
+    (c.stock ||= [])[sc.level] = e.target.value; saveSoon();
+    scTotal(it);
   }
 });
 
